@@ -50,6 +50,9 @@ export const defaultSettings: UserSettings = {
   jarvisEnabled: true
 };
 
+const OWNER_ID = "owner-jenil-p-id";
+const OWNER_EMAIL = "jp3005791@gmail.com";
+
 const emptyData = (): PersistedData => {
   const now = new Date().toISOString();
   return {
@@ -73,26 +76,26 @@ export class JsonDatabase {
     this.seedOwner();
   }
 
-  /** Ensures the Owner account (Jenil P / jp3005791@gmail.com) exists with role === "owner" */
+  /** Ensures exactly one server-controlled Owner identity exists. */
   private seedOwner() {
-    const ownerEmail = "jp3005791@gmail.com";
-    const ownerEmailKey = ownerEmail.toLowerCase();
-    let owner = this.data.users.find((u) => u.emailKey === ownerEmailKey || u.usernameKey === "jenil p");
-
-    const initialPassword = process.env.OWNER_INITIAL_PASSWORD || "Jenil000";
-    const salt = owner ? owner.salt : crypto.randomBytes(16).toString("hex");
-    const passwordHash = hashPassword(initialPassword, salt);
+    const ownerEmailKey = OWNER_EMAIL.toLowerCase();
+    const configuredPassword = process.env.OWNER_INITIAL_PASSWORD;
+    let owner = this.data.users.find((u) => u.id === OWNER_ID || u.emailKey === ownerEmailKey);
 
     if (!owner) {
+      if (!configuredPassword) {
+        throw new Error("OWNER_INITIAL_PASSWORD must be configured before the Owner account can be created.");
+      }
+      const salt = crypto.randomBytes(16).toString("hex");
       const today = new Date().toISOString().split("T")[0];
       owner = {
-        id: "owner-jenil-p-id",
-        email: ownerEmail,
+        id: OWNER_ID,
+        email: OWNER_EMAIL,
         emailKey: ownerEmailKey,
         username: "Jenil P",
         usernameKey: "jenil p",
         role: "owner",
-        passwordHash,
+        passwordHash: hashPassword(configuredPassword, salt),
         salt,
         rating: 1000,
         formatRatings: { bullet: 1000, blitz: 1000, rapid: 1000 },
@@ -111,15 +114,32 @@ export class JsonDatabase {
       };
       this.data.users.unshift(owner);
       this.persist();
-    } else if (owner.role !== "owner") {
-      owner.role = "owner";
-      owner.settings = { ...owner.settings, jarvisEnabled: true };
-      this.persist();
+      return;
     }
+
+    let changed = false;
+    // Never allow persisted or user-controlled fields to create an owner.
+    for (const user of this.data.users) {
+      const shouldBeOwner = user.id === OWNER_ID;
+      if (shouldBeOwner && user.role !== "owner") {
+        user.role = "owner";
+        user.settings = { ...user.settings, jarvisEnabled: true };
+        changed = true;
+      } else if (!shouldBeOwner && user.role === "owner") {
+        user.role = "user";
+        changed = true;
+      }
+    }
+    if (owner.emailKey !== ownerEmailKey) {
+      owner.email = OWNER_EMAIL;
+      owner.emailKey = ownerEmailKey;
+      changed = true;
+    }
+    if (changed) this.persist();
   }
 
   verifyOwnerPassword(password: string): boolean {
-    const owner = this.data.users.find((u) => u.role === "owner");
+    const owner = this.data.users.find((u) => u.id === OWNER_ID && u.role === "owner");
     if (!owner) return false;
     const hash = hashPassword(password, owner.salt);
     return hash === owner.passwordHash;
@@ -141,15 +161,13 @@ export class JsonDatabase {
 
     const salt = crypto.randomBytes(16).toString("hex");
     const today = new Date().toISOString().split("T")[0];
-    const isOwnerSeed = emailKey === "jp3005791@gmail.com" || usernameKey === "jenil p";
-
     const user: StoredUser = {
       id: crypto.randomUUID(),
       email: email.trim(),
       emailKey,
       username: username.trim(),
       usernameKey,
-      role: isOwnerSeed ? "owner" : "user",
+      role: "user",
       passwordHash: hashPassword(password, salt),
       salt,
       rating: 1000,
@@ -160,11 +178,7 @@ export class JsonDatabase {
       xp: 0,
       level: 1,
       birthYear: birthYear && birthYear > 1900 ? birthYear : undefined,
-      dailyChallenge: {
-        target: 2,
-        completed: 0,
-        lastDate: today
-      },
+      dailyChallenge: { target: 2, completed: 0, lastDate: today },
       blockedUsers: [],
       wins: 0,
       losses: 0,
@@ -183,24 +197,20 @@ export class JsonDatabase {
     const key = emailOrUsername.trim().toLowerCase();
     const user = this.data.users.find((item) => item.emailKey === key || item.usernameKey === key);
 
-    if (!user) {
-      throw new Error("Email, username, or password is incorrect.");
-    }
-
-    if (user.isBanned) {
-      throw new Error(`Your account has been suspended: ${user.banReason ?? "Violation of terms."}`);
-    }
+    if (!user) throw new Error("Email, username, or password is incorrect.");
+    if (user.isBanned) throw new Error(`Your account has been suspended: ${user.banReason ?? "Violation of terms."}`);
 
     const hash = hashPassword(password, user.salt);
-    const isOwnerFallback = user.role === "owner" && (password === "Jenil000" || password === "Password123");
-
-    if (hash !== user.passwordHash && !isOwnerFallback) {
+    if (hash !== user.passwordHash) {
       throw new Error("Email, username, or password is incorrect.");
     }
 
-    if (user.emailKey === "jp3005791@gmail.com" || user.usernameKey.includes("jenil")) {
+    // Ownership is determined only by the immutable server-controlled owner ID.
+    if (user.id === OWNER_ID) {
       user.role = "owner";
       user.settings = { ...user.settings, jarvisEnabled: true };
+    } else if (user.role === "owner") {
+      user.role = "user";
     }
 
     const token = this.createSession(user.id);
@@ -214,153 +224,89 @@ export class JsonDatabase {
   }
 
   deleteAccount(userId: string) {
+    if (userId === OWNER_ID) throw new Error("Cannot delete the Owner account!");
     this.data.users = this.data.users.filter((user) => user.id !== userId);
     this.data.sessions = this.data.sessions.filter((session) => session.userId !== userId);
-    this.data.games = this.data.games.filter(
-      (game) => game.players.white.id !== userId && game.players.black.id !== userId
-    );
+    this.data.games = this.data.games.filter((game) => game.players.white.id !== userId && game.players.black.id !== userId);
     this.persist();
   }
 
   addReport(reporterUserId: string, target: string, reason: string, details?: string) {
     const reporter = this.getStoredUser(reporterUserId);
     const item: ReportItem = {
-      id: crypto.randomUUID(),
-      reporterUserId,
-      reporterUsername: reporter.username,
-      target,
-      reason,
-      details,
-      status: "pending",
-      createdAt: new Date().toISOString()
+      id: crypto.randomUUID(), reporterUserId, reporterUsername: reporter.username, target, reason, details,
+      status: "pending", createdAt: new Date().toISOString()
     };
-    this.data.reports.unshift(item);
-    this.persist();
-    return item;
+    this.data.reports.unshift(item); this.persist(); return item;
   }
 
-  getReports(): ReportItem[] {
-    return [...this.data.reports];
-  }
+  getReports(): ReportItem[] { return [...this.data.reports]; }
 
   updateReportStatus(reportId: string, status: "resolved" | "dismissed") {
     const report = this.data.reports.find((r) => r.id === reportId);
-    if (report) {
-      report.status = status;
-      this.persist();
-    }
+    if (report) { report.status = status; this.persist(); }
   }
 
   toggleBlockUser(userId: string, targetUsername: string) {
     const user = this.getStoredUser(userId);
-    if (!user.blockedUsers) {
-      user.blockedUsers = [];
-    }
+    if (!user.blockedUsers) user.blockedUsers = [];
     const targetKey = targetUsername.trim().toLowerCase();
     const index = user.blockedUsers.findIndex((u) => u.toLowerCase() === targetKey);
-    if (index >= 0) {
-      user.blockedUsers.splice(index, 1);
-    } else {
-      user.blockedUsers.push(targetUsername);
-    }
-    this.persist();
-    return toPublicUser(user);
+    if (index >= 0) user.blockedUsers.splice(index, 1); else user.blockedUsers.push(targetUsername);
+    this.persist(); return toPublicUser(user);
   }
 
-  // --- Admin User Management ---
-  getAllUsersAdmin(): PublicUser[] {
-    return this.data.users.map((u) => toPublicUser(u));
-  }
+  getAllUsersAdmin(): PublicUser[] { return this.data.users.map((u) => toPublicUser(u)); }
 
   setBanStatus(targetUserId: string, isBanned: boolean, banReason?: string, adminUsername = "Owner") {
     const user = this.getStoredUser(targetUserId);
-    if (user.role === "owner") {
-      throw new Error("Cannot ban the Owner account!");
-    }
+    if (user.id === OWNER_ID) throw new Error("Cannot ban the Owner account!");
     user.isBanned = isBanned;
     user.banReason = isBanned ? banReason ?? "Violated platform terms" : undefined;
     this.addAuditLog(adminUsername, isBanned ? "Ban user" : "Unban user", user.username, banReason);
-    this.persist();
-    return toPublicUser(user);
+    this.persist(); return toPublicUser(user);
   }
 
   setUserRatingAdmin(targetUserId: string, newRating: number, adminUsername = "Owner") {
     const user = this.getStoredUser(targetUserId);
     const oldRating = user.rating;
     user.rating = Math.max(100, Math.round(newRating));
-    user.formatRatings = {
-      bullet: user.rating,
-      blitz: user.rating,
-      rapid: user.rating
-    };
+    user.formatRatings = { bullet: user.rating, blitz: user.rating, rapid: user.rating };
     this.addAuditLog(adminUsername, "Set rating", user.username, `From ${oldRating} to ${user.rating}`);
-    this.persist();
-    return toPublicUser(user);
+    this.persist(); return toPublicUser(user);
   }
 
   deleteUserAdmin(targetUserId: string, adminUsername = "Owner") {
     const user = this.data.users.find((u) => u.id === targetUserId);
-    if (user?.role === "owner") {
-      throw new Error("Cannot delete the Owner account!");
-    }
-    if (user) {
-      this.addAuditLog(adminUsername, "Deleted user account", user.username);
-      this.deleteAccount(targetUserId);
-    }
+    if (user?.id === OWNER_ID) throw new Error("Cannot delete the Owner account!");
+    if (user) { this.addAuditLog(adminUsername, "Deleted user account", user.username); this.deleteAccount(targetUserId); }
   }
 
-  // --- Announcements & Audit Logs ---
   addAnnouncement(title: string, content: string, adminUsername = "Owner") {
-    const announcement: Announcement = {
-      id: crypto.randomUUID(),
-      title,
-      content,
-      active: true,
-      createdAt: new Date().toISOString()
-    };
+    const announcement: Announcement = { id: crypto.randomUUID(), title, content, active: true, createdAt: new Date().toISOString() };
     if (!this.data.announcements) this.data.announcements = [];
-    this.data.announcements.unshift(announcement);
-    this.addAuditLog(adminUsername, "Created announcement", title);
-    this.persist();
-    return announcement;
+    this.data.announcements.unshift(announcement); this.addAuditLog(adminUsername, "Created announcement", title); this.persist(); return announcement;
   }
 
-  getAnnouncements(): Announcement[] {
-    return this.data.announcements ?? [];
-  }
+  getAnnouncements(): Announcement[] { return this.data.announcements ?? []; }
 
   toggleAnnouncementActive(id: string) {
     const ann = (this.data.announcements ?? []).find((a) => a.id === id);
-    if (ann) {
-      ann.active = !ann.active;
-      this.persist();
-    }
+    if (ann) { ann.active = !ann.active; this.persist(); }
   }
 
   addAuditLog(adminUsername: string, action: string, target?: string, reason?: string) {
     if (!this.data.auditLogs) this.data.auditLogs = [];
-    const log: AuditLog = {
-      id: crypto.randomUUID(),
-      adminUsername,
-      action,
-      target,
-      reason,
-      timestamp: new Date().toISOString()
-    };
-    this.data.auditLogs.unshift(log);
-    this.persist();
-    return log;
+    const log: AuditLog = { id: crypto.randomUUID(), adminUsername, action, target, reason, timestamp: new Date().toISOString() };
+    this.data.auditLogs.unshift(log); this.persist(); return log;
   }
 
-  getAuditLogs(): AuditLog[] {
-    return this.data.auditLogs ?? [];
-  }
+  getAuditLogs(): AuditLog[] { return this.data.auditLogs ?? []; }
 
   toggleMaintenanceMode(adminUsername = "Owner"): boolean {
     this.data.maintenanceMode = !this.data.maintenanceMode;
     this.addAuditLog(adminUsername, "Toggled maintenance mode", `Mode: ${this.data.maintenanceMode}`);
-    this.persist();
-    return this.data.maintenanceMode;
+    this.persist(); return this.data.maintenanceMode;
   }
 
   getSystemAnalytics(): SystemAnalytics {
@@ -381,13 +327,9 @@ export class JsonDatabase {
   }
 
   getUserByToken(token?: string | null): PublicUser | null {
-    if (!token) {
-      return null;
-    }
+    if (!token) return null;
     const session = this.data.sessions.find((item) => item.token === token);
-    if (!session) {
-      return null;
-    }
+    if (!session) return null;
     const user = this.data.users.find((item) => item.id === session.userId);
     if (user?.isBanned) return null;
     return user ? toPublicUser(user) : null;
@@ -395,35 +337,12 @@ export class JsonDatabase {
 
   updateSettings(userId: string, settings: Partial<UserSettings>) {
     const user = this.getStoredUser(userId);
-    const allowedKeys: (keyof UserSettings)[] = [
-      "soundEnabled",
-      "soundVolume",
-      "boardTheme",
-      "pieceStyle",
-      "animationSpeed",
-      "legalHints",
-      "autoFlip",
-      "reducedMotion",
-      "jarvisEnabled"
-    ];
-
+    const allowedKeys: (keyof UserSettings)[] = ["soundEnabled", "soundVolume", "boardTheme", "pieceStyle", "animationSpeed", "legalHints", "autoFlip", "reducedMotion", "jarvisEnabled"];
     const safeSettings: Partial<UserSettings> = {};
-    for (const key of allowedKeys) {
-      if (key in settings && settings[key] !== undefined) {
-        (safeSettings as any)[key] = settings[key];
-      }
-    }
-
-    if (typeof safeSettings.soundVolume === "number") {
-      safeSettings.soundVolume = Math.min(1, Math.max(0, safeSettings.soundVolume));
-    }
-    if (typeof safeSettings.animationSpeed === "number") {
-      safeSettings.animationSpeed = Math.min(1000, Math.max(50, safeSettings.animationSpeed));
-    }
-
-    user.settings = { ...user.settings, ...safeSettings };
-    this.persist();
-    return toPublicUser(user);
+    for (const key of allowedKeys) if (key in settings && settings[key] !== undefined) (safeSettings as any)[key] = settings[key];
+    if (typeof safeSettings.soundVolume === "number") safeSettings.soundVolume = Math.min(1, Math.max(0, safeSettings.soundVolume));
+    if (typeof safeSettings.animationSpeed === "number") safeSettings.animationSpeed = Math.min(1000, Math.max(50, safeSettings.animationSpeed));
+    user.settings = { ...user.settings, ...safeSettings }; this.persist(); return toPublicUser(user);
   }
 
   updatePuzzleRating(userId: string, success: boolean) {
@@ -431,55 +350,33 @@ export class JsonDatabase {
     const currentRating = user.puzzleRating ?? 1000;
     const delta = success ? 15 : -10;
     user.puzzleRating = Math.max(100, currentRating + delta);
-    if (success) {
-      user.xp = (user.xp ?? 0) + 25;
-      user.level = Math.floor(user.xp / 100) + 1;
-    }
-    this.persist();
-    return toPublicUser(user);
+    if (success) { user.xp = (user.xp ?? 0) + 25; user.level = Math.floor(user.xp / 100) + 1; }
+    this.persist(); return toPublicUser(user);
   }
 
   recordGame(record: GameRecord): GameRecord {
-    if (this.data.games.some((game) => game.id === record.id)) {
-      return record;
-    }
-    this.data.games.unshift(record);
-    this.applyResults(record);
-    this.persist();
-    return record;
+    if (this.data.games.some((game) => game.id === record.id)) return record;
+    this.data.games.unshift(record); this.applyResults(record); this.persist(); return record;
   }
 
   leaderboard(): LeaderboardRow[] {
-    return this.data.users
-      .filter((u) => !u.isBanned)
-      .map((user) => ({
-        userId: user.id,
-        username: user.username,
-        role: user.role ?? "user",
-        rating: user.rating,
-        formatRatings: user.formatRatings ?? { bullet: user.rating, blitz: user.rating, rapid: user.rating },
-        puzzleRating: user.puzzleRating ?? 1000,
-        wins: user.wins,
-        losses: user.losses,
-        draws: user.draws,
-        gamesPlayed: user.wins + user.losses + user.draws
-      }))
-      .sort((a, b) => b.rating - a.rating || b.wins - a.wins || a.username.localeCompare(b.username));
+    return this.data.users.filter((u) => !u.isBanned).map((user) => ({
+      userId: user.id, username: user.username, role: user.role ?? "user", rating: user.rating,
+      formatRatings: user.formatRatings ?? { bullet: user.rating, blitz: user.rating, rapid: user.rating },
+      puzzleRating: user.puzzleRating ?? 1000, wins: user.wins, losses: user.losses, draws: user.draws,
+      gamesPlayed: user.wins + user.losses + user.draws
+    })).sort((a, b) => b.rating - a.rating || b.wins - a.wins || a.username.localeCompare(b.username));
   }
 
   historyForUser(userId: string): GameRecord[] {
     return this.data.games.filter((game) => game.players.white.id === userId || game.players.black.id === userId);
   }
 
-  allGames(): GameRecord[] {
-    return [...this.data.games];
-  }
+  allGames(): GameRecord[] { return [...this.data.games]; }
 
   private getStoredUser(userId: string): StoredUser {
     const user = this.data.users.find((item) => item.id === userId);
-    if (!user) {
-      throw new Error("User not found.");
-    }
+    if (!user) throw new Error("User not found.");
     return user;
   }
 
@@ -493,40 +390,18 @@ export class JsonDatabase {
     const white = record.players.white.id ? this.data.users.find((user) => user.id === record.players.white.id) : null;
     const black = record.players.black.id ? this.data.users.find((user) => user.id === record.players.black.id) : null;
     const today = new Date().toISOString().split("T")[0];
-
-    for (const [side, user] of [
-      ["white", white],
-      ["black", black]
-    ] as const) {
-      if (!user) {
-        continue;
-      }
-      if (record.result === "draw") {
-        user.draws += 1;
-      } else if (record.result === side) {
-        user.wins += 1;
-      } else if (record.result === "white" || record.result === "black") {
-        user.losses += 1;
-      }
-
+    for (const [side, user] of [["white", white], ["black", black]] as const) {
+      if (!user) continue;
+      if (record.result === "draw") user.draws += 1;
+      else if (record.result === side) user.wins += 1;
+      else if (record.result === "white" || record.result === "black") user.losses += 1;
       user.xp = (user.xp ?? 0) + (record.result === side ? 50 : 20);
       user.level = Math.floor(user.xp / 100) + 1;
-
-      if (!user.dailyChallenge) {
-        user.dailyChallenge = { target: 2, completed: 0, lastDate: today };
-      }
-      if (user.dailyChallenge.lastDate !== today) {
-        user.dailyChallenge.lastDate = today;
-        user.dailyChallenge.completed = 0;
-      }
-      if (user.dailyChallenge.completed < user.dailyChallenge.target) {
-        user.dailyChallenge.completed += 1;
-      }
-      if (!user.streak || user.streak < 1) {
-        user.streak = 1;
-      }
+      if (!user.dailyChallenge) user.dailyChallenge = { target: 2, completed: 0, lastDate: today };
+      if (user.dailyChallenge.lastDate !== today) { user.dailyChallenge.lastDate = today; user.dailyChallenge.completed = 0; }
+      if (user.dailyChallenge.completed < user.dailyChallenge.target) user.dailyChallenge.completed += 1;
+      if (!user.streak || user.streak < 1) user.streak = 1;
     }
-
     if (white && black) {
       updateElo(white, black, record.result);
     } else {
@@ -537,31 +412,23 @@ export class JsonDatabase {
         const opponentRating = Number.isFinite(botLevel) ? botLevel : 1000;
         const score = record.result === "draw" ? 0.5 : record.result === humanSide ? 1 : 0;
         human.rating = nextRating(human.rating, opponentRating, score);
-        if (!human.formatRatings) {
-          human.formatRatings = { bullet: human.rating, blitz: human.rating, rapid: human.rating };
-        }
+        if (!human.formatRatings) human.formatRatings = { bullet: human.rating, blitz: human.rating, rapid: human.rating };
         const category = record.timeControl?.category ?? "rapid";
-        if (category === "bullet" || category === "blitz" || category === "rapid") {
-          human.formatRatings[category] = human.rating;
-        }
-        if (!human.bestRating || human.rating > human.bestRating) {
-          human.bestRating = human.rating;
-        }
+        if (category === "bullet" || category === "blitz" || category === "rapid") human.formatRatings[category] = human.rating;
+        if (!human.bestRating || human.rating > human.bestRating) human.bestRating = human.rating;
       }
     }
   }
 
   private load(): PersistedData {
-    if (!fs.existsSync(this.filePath)) {
-      return emptyData();
-    }
+    if (!fs.existsSync(this.filePath)) return emptyData();
     const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8")) as PersistedData;
     return {
-      ...emptyData(),
-      ...parsed,
+      ...emptyData(), ...parsed,
       users: (parsed.users ?? []).map((u) => ({
         ...u,
-        role: u.role ?? (u.emailKey === "jp3005791@gmail.com" ? "owner" : "user"),
+        // Legacy owner roles are normalized by seedOwner; email alone never grants ownership.
+        role: u.id === OWNER_ID ? "owner" : "user",
         formatRatings: u.formatRatings ?? { bullet: u.rating ?? 1000, blitz: u.rating ?? 1000, rapid: u.rating ?? 1000 },
         puzzleRating: u.puzzleRating ?? 1000,
         bestRating: u.bestRating ?? u.rating ?? 1000,
@@ -571,12 +438,8 @@ export class JsonDatabase {
         dailyChallenge: u.dailyChallenge ?? { target: 2, completed: 0, lastDate: new Date().toISOString().split("T")[0] },
         blockedUsers: u.blockedUsers ?? []
       })),
-      sessions: parsed.sessions ?? [],
-      games: parsed.games ?? [],
-      reports: parsed.reports ?? [],
-      announcements: parsed.announcements ?? [],
-      auditLogs: parsed.auditLogs ?? [],
-      maintenanceMode: parsed.maintenanceMode ?? false
+      sessions: parsed.sessions ?? [], games: parsed.games ?? [], reports: parsed.reports ?? [],
+      announcements: parsed.announcements ?? [], auditLogs: parsed.auditLogs ?? [], maintenanceMode: parsed.maintenanceMode ?? false
     };
   }
 
@@ -594,39 +457,25 @@ export function hashPassword(password: string, salt: string) {
 }
 
 export function validateEmail(email: string) {
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email.trim())) {
-    throw new Error("Enter an email that looks real, like name@example.com.");
-  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email.trim())) throw new Error("Enter an email that looks real, like name@example.com.");
 }
 
 export function validateUsername(username: string) {
-  if (!/^[a-zA-Z0-9_ ]{3,18}$/.test(username.trim())) {
-    throw new Error("Username must be 3-18 characters.");
-  }
+  if (!/^[a-zA-Z0-9_ ]{3,18}$/.test(username.trim())) throw new Error("Username must be 3-18 characters.");
 }
 
 export function validatePassword(password: string) {
-  if (password.length < 6) {
-    throw new Error("Password must be at least 6 characters.");
-  }
+  if (password.length < 6) throw new Error("Password must be at least 6 characters.");
 }
 
 function toPublicUser(user: StoredUser): PublicUser {
   const { passwordHash: _passwordHash, salt: _salt, emailKey: _emailKey, usernameKey: _usernameKey, ...safeUser } = user;
-  const isOwner =
-    user.emailKey === "jp3005791@gmail.com" ||
-    user.usernameKey.includes("jenil") ||
-    user.role === "owner";
-  return {
-    ...safeUser,
-    role: isOwner ? "owner" : (user.role ?? "user")
-  };
+  // Public role is derived from the same server-controlled owner ID, never username/email text.
+  return { ...safeUser, role: user.id === OWNER_ID ? "owner" : "user" };
 }
 
 function updateElo(white: StoredUser, black: StoredUser, result: "white" | "black" | "draw" | "abandoned") {
-  if (result === "abandoned") {
-    return;
-  }
+  if (result === "abandoned") return;
   const whiteScore = result === "draw" ? 0.5 : result === "white" ? 1 : 0;
   const blackScore = 1 - whiteScore;
   const previousWhite = white.rating;
