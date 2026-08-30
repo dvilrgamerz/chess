@@ -1,0 +1,16 @@
+{
+  "name": "Chess Arena v2 Platform",
+  "short_name": "Chess Arena",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101411",
+  "theme_color": "#62d27f",
+  "description": "Play chess online, against bots, solve puzzles, and analyze games.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}
