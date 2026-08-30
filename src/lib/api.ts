@@ -11,7 +11,7 @@ import type {
 } from "../../shared/types.js";
 
 const tokenKey = "chess-arena-token";
-const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+const apiBase = ((import.meta as any).env?.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
 export function getApiBaseUrl() { return apiBase; }
 export function getToken() { return sessionStorage.getItem(tokenKey); }
