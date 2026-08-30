@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n SERVER,WEB -c cyan,green \"tsx watch server/index.ts\" \"vite --host 0.0.0.0\"",
+    "dev": "node scripts/apply-bot-worker.mjs && concurrently -n SERVER,WEB -c cyan,green \"tsx watch server/index.ts\" \"vite --host 0.0.0.0\"",
     "server": "tsx server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "vite build && tsc -p tsconfig.server.json",
+    "build": "node scripts/apply-bot-worker.mjs && vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server/server/index.js"
   },
   "dependencies": {
