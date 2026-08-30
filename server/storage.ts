@@ -79,9 +79,9 @@ export class JsonDatabase {
     const ownerEmailKey = ownerEmail.toLowerCase();
     let owner = this.data.users.find((u) => u.emailKey === ownerEmailKey || u.usernameKey === "jenil p");
 
+    const initialPassword = process.env.OWNER_INITIAL_PASSWORD || "Jenil000";
     const salt = owner ? owner.salt : crypto.randomBytes(16).toString("hex");
-    // Supports both 'Password123' and 'Jenil000'
-    const passwordHash = hashPassword("Jenil000", salt);
+    const passwordHash = hashPassword(initialPassword, salt);
 
     if (!owner) {
       const today = new Date().toISOString().split("T")[0];
@@ -121,11 +121,8 @@ export class JsonDatabase {
   verifyOwnerPassword(password: string): boolean {
     const owner = this.data.users.find((u) => u.role === "owner");
     if (!owner) return false;
-    // Check against Jenil000 or Password123
     const hash = hashPassword(password, owner.salt);
-    if (hash === owner.passwordHash) return true;
-    const backupHash = hashPassword("Password123", owner.salt);
-    return hash === backupHash;
+    return hash === owner.passwordHash;
   }
 
   createUser(email: string, password: string, username: string, birthYear?: number) {
@@ -398,16 +395,46 @@ export class JsonDatabase {
 
   updateSettings(userId: string, settings: Partial<UserSettings>) {
     const user = this.getStoredUser(userId);
-    user.settings = { ...user.settings, ...settings };
+    const allowedKeys: (keyof UserSettings)[] = [
+      "soundEnabled",
+      "soundVolume",
+      "boardTheme",
+      "pieceStyle",
+      "animationSpeed",
+      "legalHints",
+      "autoFlip",
+      "reducedMotion",
+      "jarvisEnabled"
+    ];
+
+    const safeSettings: Partial<UserSettings> = {};
+    for (const key of allowedKeys) {
+      if (key in settings && settings[key] !== undefined) {
+        (safeSettings as any)[key] = settings[key];
+      }
+    }
+
+    if (typeof safeSettings.soundVolume === "number") {
+      safeSettings.soundVolume = Math.min(1, Math.max(0, safeSettings.soundVolume));
+    }
+    if (typeof safeSettings.animationSpeed === "number") {
+      safeSettings.animationSpeed = Math.min(1000, Math.max(50, safeSettings.animationSpeed));
+    }
+
+    user.settings = { ...user.settings, ...safeSettings };
     this.persist();
     return toPublicUser(user);
   }
 
-  updatePuzzleRating(userId: string, newRating: number) {
+  updatePuzzleRating(userId: string, success: boolean) {
     const user = this.getStoredUser(userId);
-    user.puzzleRating = Math.max(100, Math.round(newRating));
-    user.xp = (user.xp ?? 0) + 25;
-    user.level = Math.floor(user.xp / 100) + 1;
+    const currentRating = user.puzzleRating ?? 1000;
+    const delta = success ? 15 : -10;
+    user.puzzleRating = Math.max(100, currentRating + delta);
+    if (success) {
+      user.xp = (user.xp ?? 0) + 25;
+      user.level = Math.floor(user.xp / 100) + 1;
+    }
     this.persist();
     return toPublicUser(user);
   }

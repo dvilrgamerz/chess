@@ -30,13 +30,15 @@ export function PuzzlesView({ user, onUserUpdate, boardTheme, pieceStyle }: Puzz
     if (isMatch) {
       setStatus("correct");
       setPuzzleStreak((prev) => prev + 1);
-      const newRating = (user.puzzleRating ?? 1200) + 15;
-      submitPuzzleSolve(newRating)
+      submitPuzzleSolve(true)
         .then((res) => onUserUpdate(res.user))
         .catch(() => {});
     } else {
       setStatus("wrong");
       setPuzzleStreak(0);
+      submitPuzzleSolve(false)
+        .then((res) => onUserUpdate(res.user))
+        .catch(() => {});
     }
   }
 

@@ -53,9 +53,15 @@ export async function updateSettings(settings: Partial<UserSettings>) {
 export async function saveGame(game: GameRecord) {
   return request<{ game: GameRecord }>("/api/games", { method: "POST", body: JSON.stringify({ game }) });
 }
-export async function getAnnouncements() { return request<{ announcements: Announcement[] }>("/api/announcements"); }
-export async function submitPuzzleSolve(newRating: number) {
-  return request<{ user: PublicUser }>("/api/puzzle/solve", { method: "POST", body: JSON.stringify({ newRating }) });
+export async function getAnnouncements() {
+  return request<{ announcements: Announcement[] }>("/api/announcements");
+}
+
+export async function submitPuzzleSolve(success = true) {
+  return request<{ user: PublicUser }>("/api/puzzle/solve", {
+    method: "POST",
+    body: JSON.stringify({ success })
+  });
 }
 
 export async function verifyOwnerPassword(password: string) {

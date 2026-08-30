@@ -131,8 +131,8 @@ export function createChessArenaServer(options: ServerOptions = {}) {
   app.post("/api/puzzle/solve", (req, res) => {
     const user = requireUser(req, res, db);
     if (!user) return;
-    const newRating = Number(req.body.newRating ?? user.puzzleRating);
-    res.json({ user: db.updatePuzzleRating(user.id, newRating) });
+    const success = Boolean(req.body.success);
+    res.json({ user: db.updatePuzzleRating(user.id, success) });
   });
 
   app.post("/api/games", (req, res) => {
