@@ -1,3 +1,8 @@
+<!-- DVILR PROJECT COVER v1 -->
+<p align="center"><img src="./assets/dvilr-project-banner.svg" width="100%" alt="Chess Arena — Play. Learn. Compete." /></p>
+<p align="center"><a href="https://github.com/dvilrgamerz"><strong>Developer profile</strong></a> · <a href="https://github.com/dvilrgamerz/chess"><strong>Source</strong></a> · <a href="https://chess-arena-v2.netlify.app"><strong>Live app ↗</strong></a></p>
+<!-- /DVILR PROJECT COVER -->
+
 # ♟️ Chess Arena v2
 
 <p align="center">
