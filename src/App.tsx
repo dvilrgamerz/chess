@@ -984,6 +984,15 @@ function OnlineGame({
   const prevSnapshotRef = useRef<GameSnapshot | null>(null);
   const stopGameSubscriptionRef = useRef<(() => void) | null>(null);
   const stopQueueSubscriptionRef = useRef<(() => void) | null>(null);
+  const queueSyncPendingRef = useRef(false);
+
+  // Realtime messages may be missed while a tab sleeps or reconnects.
+  // One lightweight check every 12 seconds only while matchmaking.
+  useEffect(() => {
+    if (!queued) return;
+    const interval = window.setInterval(() => void syncQueuedMatch(), 12000);
+    return () => window.clearInterval(interval);
+  }, [queued]);
 
   useEffect(() => {
     return () => {
@@ -1098,9 +1107,19 @@ function OnlineGame({
   }
 
   async function syncQueuedMatch() {
+    if (queueSyncPendingRef.current) return;
+    queueSyncPendingRef.current = true;
     try {
       const result = await syncRandomMatchSupabase();
-      if (!result.snapshot || !result.gameId || !result.playerColor) return;
+      if (!result.snapshot || !result.gameId || !result.playerColor) {
+        if (!result.queued) {
+          setQueued(false);
+          stopQueueSubscriptionRef.current?.();
+          stopQueueSubscriptionRef.current = null;
+          setMessage("Matchmaking queue expired. Please join again.");
+        }
+        return;
+      }
       setQueued(false);
       stopQueueSubscriptionRef.current?.();
       stopQueueSubscriptionRef.current = null;
@@ -1111,6 +1130,8 @@ function OnlineGame({
       playSound("gameStart", user.settings);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sync matchmaking.");
+    } finally {
+      queueSyncPendingRef.current = false;
     }
   }
 
@@ -1122,9 +1143,16 @@ function OnlineGame({
         setQueued(true);
         setMessage("Waiting for a similarly rated opponent...");
         stopQueueSubscriptionRef.current?.();
-        stopQueueSubscriptionRef.current = subscribeToMatchmaking(user.id, () => {
-          void syncQueuedMatch();
-        });
+        stopQueueSubscriptionRef.current = subscribeToMatchmaking(
+          user.id,
+          () => void syncQueuedMatch(),
+          (status) => {
+            if (status === "SUBSCRIBED") void syncQueuedMatch();
+            if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+              setMessage("Matchmaking connection reconnecting...");
+            }
+          }
+        );
         return;
       }
 
@@ -1192,7 +1220,7 @@ function OnlineGame({
   }
 
   async function handleGameAction(action: "resign" | "draw_offer" | "draw_accept" | "rematch" | "flag_timeout") {
-    if (!snapshot) return;
+    if (!snapshot || movePendingRef.current) return;
     try {
       const result = await onlineGameActionSupabase(action, snapshot.id);
       if (action === "rematch") {
@@ -1343,20 +1371,20 @@ function OnlineGame({
             <>
               <button
                 className="danger"
-                disabled={snapshot.status !== "active"}
+                disabled={snapshot.status !== "active" || movePending}
                 onClick={() => void handleGameAction("resign")}
               >
                 Resign
               </button>
               <button
                 className="secondary"
-                disabled={snapshot.status !== "active"}
+                disabled={snapshot.status !== "active" || movePending}
                 onClick={() => void handleGameAction("draw_offer")}
               >
                 Offer draw
               </button>
               {canAcceptDraw ? (
-                <button className="primary" onClick={() => void handleGameAction("draw_accept")}>
+                <button className="primary" disabled={movePending} onClick={() => void handleGameAction("draw_accept")}>
                   Accept draw
                 </button>
               ) : null}
