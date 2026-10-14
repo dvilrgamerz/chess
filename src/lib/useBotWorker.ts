@@ -7,6 +7,7 @@ type BotResponse = { requestId: number; move: BotMove };
 interface BotSearchResult {
   fen: string;
   level: BotLevel;
+  gameId: string;
   move: BotMove;
   startedAt: number;
 }
@@ -16,7 +17,7 @@ interface BotSearchResult {
  * calculation is superseded, so stale searches cannot monopolize the worker.
  * Results are tied to the exact FEN and level, never to a previous game.
  */
-export function useBotWorker(fen: string, level: BotLevel, enabled = true) {
+export function useBotWorker(fen: string, level: BotLevel, enabled = true, gameId = "") {
   const [result, setResult] = useState<BotSearchResult | null>(null);
   const [thinking, setThinking] = useState(false);
   const workerRef = useRef<Worker | null>(null);
@@ -57,7 +58,7 @@ export function useBotWorker(fen: string, level: BotLevel, enabled = true) {
     worker.onmessage = (event: MessageEvent<BotResponse>) => {
       if (requestIdRef.current !== requestId || event.data.requestId !== requestId) return;
       pendingRef.current = false;
-      setResult({ fen, level, move: event.data.move, startedAt });
+      setResult({ fen, level, gameId, move: event.data.move, startedAt });
       setThinking(false);
     };
     worker.onerror = () => {
@@ -80,14 +81,14 @@ export function useBotWorker(fen: string, level: BotLevel, enabled = true) {
         pendingRef.current = false;
       }
     };
-  }, [fen, level, enabled]);
+  }, [fen, level, enabled, gameId]);
 
   useEffect(() => () => {
     workerRef.current?.terminate();
     workerRef.current = null;
   }, []);
 
-  const currentResult = enabled && result?.fen === fen && result?.level === level ? result : null;
+  const currentResult = enabled && result?.fen === fen && result?.level === level && result.gameId === gameId ? result : null;
   return {
     move: currentResult?.move ?? null,
     startedAt: currentResult?.startedAt ?? null,
