@@ -233,6 +233,7 @@ export async function requestPasswordReset(email: string) {
     throw new Error("Enter a valid email address.");
   }
 
+  // The redirect origin must be allowlisted in Supabase Auth URL Configuration.
   const redirectTo = `${window.location.origin}/reset-password?recovery=1`;
   const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
     redirectTo
