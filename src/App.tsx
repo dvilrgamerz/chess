@@ -29,7 +29,7 @@ import {
   Zap
 } from "lucide-react";
 import { getGameResult, sideFromTurn, tryMove } from "../shared/chess.js";
-import { isSupabaseConfigured, supabase } from "./lib/supabase.js";
+import { isSupabaseConfigured, supabase, supabaseConfigurationError } from "./lib/supabase.js";
 import {
   createFriendRoomSupabase,
   joinFriendRoomSupabase,
@@ -161,6 +161,11 @@ export function App() {
   const [analyzingGame, setAnalyzingGame] = useState<GameRecord | null>(null);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      return;
+    }
+
     const recoveryHint = isPasswordRecoveryUrl();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
@@ -215,6 +220,20 @@ export function App() {
         <Crown size={42} />
         <span>Loading Chess Arena v2...</span>
       </div>
+    );
+  }
+
+  if (!isSupabaseConfigured) {
+    return (
+      <main className="auth-screen" id="auth-main">
+        <section className="auth-card" role="alert">
+          <h1>Chess Arena backend is not configured</h1>
+          <p>Online accounts and multiplayer cannot connect until this deployment has valid Supabase settings.</p>
+          <p className="muted">{supabaseConfigurationError}</p>
+          <p className="muted">Site owner: configure VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY on the correct Netlify site and redeploy.</p>
+          <p><a href="https://github.com/dvilrgamerz/chess/blob/main/SUPABASE_SETUP.md" target="_blank" rel="noreferrer">Backend setup instructions</a></p>
+        </section>
+      </main>
     );
   }
 
