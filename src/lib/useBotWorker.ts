@@ -2,47 +2,95 @@ import { useEffect, useRef, useState } from "react";
 import type { BotLevel } from "../../shared/types.js";
 
 type BotMove = { from: string; to: string; promotion?: string; san?: string } | null;
+type BotResponse = { requestId: number; move: BotMove };
 
-/** Runs bot search off the React/main thread so board input and animation stay responsive. */
+interface BotSearchResult {
+  fen: string;
+  level: BotLevel;
+  move: BotMove;
+  startedAt: number;
+}
+
+/**
+ * Keep an idle Web Worker ready between bot turns. Terminate it only when a
+ * calculation is superseded, so stale searches cannot monopolize the worker.
+ * Results are tied to the exact FEN and level, never to a previous game.
+ */
 export function useBotWorker(fen: string, level: BotLevel, enabled = true) {
-  const [move, setMove] = useState<BotMove>(null);
+  const [result, setResult] = useState<BotSearchResult | null>(null);
   const [thinking, setThinking] = useState(false);
   const workerRef = useRef<Worker | null>(null);
+  const pendingRef = useRef(false);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
+    // Invalidate late messages on every position/difficulty change.
+    const requestId = ++requestIdRef.current;
+    if (pendingRef.current) {
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      pendingRef.current = false;
+    }
     if (!enabled || !fen) {
-      setMove(null);
+      setResult(null);
       setThinking(false);
       return;
     }
 
-    workerRef.current?.terminate();
-    const worker = new Worker(new URL("./botWorker.ts", import.meta.url), { type: "module" });
-    workerRef.current = worker;
-    let cancelled = false;
+    let worker = workerRef.current;
+    if (!worker) {
+      try {
+        worker = new Worker(new URL("./botWorker.ts", import.meta.url), { type: "module" });
+        workerRef.current = worker;
+      } catch {
+        setResult(null);
+        setThinking(false);
+        return;
+      }
+    }
 
-    setMove(null);
+    const startedAt = Date.now();
+    setResult(null);
     setThinking(true);
+    pendingRef.current = true;
 
-    worker.onmessage = (event: MessageEvent<{ move: BotMove }>) => {
-      if (cancelled) return;
-      setMove(event.data.move);
+    worker.onmessage = (event: MessageEvent<BotResponse>) => {
+      if (requestIdRef.current !== requestId || event.data.requestId !== requestId) return;
+      pendingRef.current = false;
+      setResult({ fen, level, move: event.data.move, startedAt });
       setThinking(false);
     };
-
     worker.onerror = () => {
-      if (cancelled) return;
+      if (requestIdRef.current !== requestId) return;
+      pendingRef.current = false;
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      setResult(null);
       setThinking(false);
     };
 
-    worker.postMessage({ fen, level });
+    worker.postMessage({ fen, level, requestId });
 
     return () => {
-      cancelled = true;
-      worker.terminate();
-      if (workerRef.current === worker) workerRef.current = null;
+      // The idle worker is reusable; interrupt only unfinished calculations.
+      requestIdRef.current += 1;
+      if (pendingRef.current) {
+        workerRef.current?.terminate();
+        workerRef.current = null;
+        pendingRef.current = false;
+      }
     };
   }, [fen, level, enabled]);
 
-  return { move, thinking };
+  useEffect(() => () => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+  }, []);
+
+  const currentResult = enabled && result?.fen === fen && result?.level === level ? result : null;
+  return {
+    move: currentResult?.move ?? null,
+    startedAt: currentResult?.startedAt ?? null,
+    thinking
+  };
 }
