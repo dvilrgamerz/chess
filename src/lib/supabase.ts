@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { resolveSupabaseConfig } from "./supabaseConfig.js";
 
-const config = resolveSupabaseConfig(import.meta.env);
+const config = resolveSupabaseConfig({
+  VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
+  VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY
+});
 export const isSupabaseConfigured = config.isConfigured;
 export const supabaseConfigurationError = config.error;
 
