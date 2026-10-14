@@ -259,7 +259,8 @@ export function subscribeToOnlineGameRealtime(
 
 export function subscribeToMatchmaking(
   userId: string,
-  onMatched: () => void
+  onMatched: () => void,
+  onStatus?: (status: string) => void
 ) {
   if (!isSupabaseConfigured) return () => {};
 
@@ -277,7 +278,7 @@ export function subscribeToMatchmaking(
         if (payload.new?.matched_game_id) onMatched();
       }
     )
-    .subscribe();
+    .subscribe((status) => onStatus?.(status));
 
   return () => {
     void supabase.removeChannel(channel);
