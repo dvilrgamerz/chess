@@ -1352,6 +1352,7 @@ function OnlineGame({
           orientation={playerColor ?? "white"}
           interactiveSide={snapshot.status === "active" && !movePending ? playerColor : null}
           clockSide={snapshot.status === "active" ? snapshot.turn : null}
+          allowAssistance={false}
           timeControl={snapshot.timeControl}
           whiteTimeRemainingMs={snapshot.whiteTimeRemainingMs}
           blackTimeRemainingMs={snapshot.blackTimeRemainingMs}
@@ -1436,6 +1437,7 @@ function GameLayout({
   orientation,
   interactiveSide,
   clockSide,
+  allowAssistance = true,
   timeControl,
   whiteTimeRemainingMs,
   blackTimeRemainingMs,
@@ -1458,6 +1460,7 @@ function GameLayout({
   orientation: Side;
   interactiveSide: Side | "both" | null;
   clockSide?: Side | null;
+  allowAssistance?: boolean;
   timeControl?: TimeControl;
   whiteTimeRemainingMs?: number;
   blackTimeRemainingMs?: number;
@@ -1480,7 +1483,7 @@ function GameLayout({
   const activeClockSide = result ? null : clockSide !== undefined ? clockSide : interactiveSide === "both" ? turn : interactiveSide;
 
   // Calculate J.A.R.V.I.S. calculation & overlay for Owner
-  const { result: jarvisAnalysis } = useJarvisWorker(fen, user.role === "owner" && !result);
+  const { result: jarvisAnalysis } = useJarvisWorker(fen, allowAssistance && user.role === "owner" && !result);
 
   return (
     <div className="game-layout">
@@ -1549,11 +1552,13 @@ function GameLayout({
       </aside>
 
       {/* Floating J.A.R.V.I.S. Widget with Live FEN */}
-      <JarvisWidget
-        user={user}
-        fen={fen}
-        onExecuteMove={onMove}
-      />
+      {allowAssistance ? (
+        <JarvisWidget
+          user={user}
+          fen={fen}
+          onExecuteMove={onMove}
+        />
+      ) : null}
     </div>
   );
 }
