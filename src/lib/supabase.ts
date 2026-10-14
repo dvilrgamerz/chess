@@ -1,17 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
+import { resolveSupabaseConfig } from "./supabaseConfig.js";
 
-const metaEnv = import.meta.env;
-const supabaseUrl =
-  (metaEnv.VITE_SUPABASE_URL as string | undefined) ??
-  "https://hulquvtadftsezwjthni.supabase.co";
+const config = resolveSupabaseConfig({
+  VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
+  VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY
+});
+export const isSupabaseConfigured = config.isConfigured;
+export const supabaseConfigurationError = config.error;
 
-// Publishable keys are designed to be shipped to browsers. Never put a secret/service-role key here.
-const supabasePublishableKey =
-  (metaEnv.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
-  (metaEnv.VITE_SUPABASE_ANON_KEY as string | undefined) ??
-  "sb_publishable__I2Zi5gFYb4pUwG3IdMhTg_pOgHXS1j";
-
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
+// Never use credentials from an unrelated project as silent production fallbacks.
+// Reserved placeholders keep the client importable for the missing-config screen.
+// App.tsx prevents auth/API calls until a real public configuration is provided.
+const supabaseUrl = config.url ?? "https://unconfigured.invalid";
+const supabasePublishableKey = config.publishableKey ?? "unconfigured-public-key";
 
 const rememberDeviceKey = "chess-arena-remember-device";
 const projectRef = (() => {
