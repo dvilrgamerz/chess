@@ -42,9 +42,11 @@ export function selectBotMove(fen: string, level: BotLevel, rng: () => number = 
   let bestScore = Number.NEGATIVE_INFINITY;
   let bestMoves: SearchMove[] = [];
   for (const move of orderMoves(legalMoves)) {
-    const next = new Chess(fen);
-    next.move(move);
-    const score = -negamax(next, depth - 1, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, next.turn());
+    // Reuse the existing position instead of allocating and parsing a new
+    // Chess instance for every root candidate. Undo restores the position.
+    chess.move(move);
+    const score = -negamax(chess, depth - 1, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, chess.turn());
+    chess.undo();
     if (score > bestScore) {
       bestScore = score;
       bestMoves = [move];

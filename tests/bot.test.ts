@@ -13,6 +13,27 @@ describe("selectBotMove", () => {
     }
   });
 
+  it("reuses the search position without corrupting subsequent searches", () => {
+    const fen = new Chess().fen();
+    // Identical seeded searches must not share mutated board state.
+    const a = selectBotMove(fen, 7, () => 0.25);
+    const b = selectBotMove(fen, 7, () => 0.25);
+    expect(a && { from: a.from, to: a.to, promotion: a.promotion })
+      .toEqual(b && { from: b.from, to: b.to, promotion: b.promotion });
+    const board = new Chess(fen);
+    expect(a ? board.move(a)?.san : null).toBeTruthy();
+    expect(new Chess(fen).fen()).toBe(fen);
+  });
+
+  it("keeps legal tactical responses in a near-endgame position", () => {
+    const fen = "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1";
+    for (const level of [3, 7, 10] as const) {
+      const move = selectBotMove(fen, level, () => 0.4);
+      const chess = new Chess(fen);
+      expect(move ? chess.move(move)?.san : null).toBeTruthy();
+    }
+  });
+
   it("returns null when no legal moves exist", () => {
     const mate = "7k/5Q2/7K/8/8/8/8/8 b - - 0 1";
     expect(selectBotMove(mate, 10)).toBeNull();

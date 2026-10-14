@@ -620,7 +620,6 @@ function BotGame({
   const [outcome, setOutcome] = useState<{ result: GameResult; reason: GameEndReason } | null>(null);
   const [lastCompletedGame, setLastCompletedGame] = useState<GameRecord | null>(null);
   const [saveStatus, setSaveStatus] = useState("");
-  const botThinkingRef = useRef(false);
   const gameEndSoundPlayed = useRef(false);
 
   const botSeat: PlayerSeat = {
@@ -641,11 +640,8 @@ function BotGame({
   const turn = sideFromTurn(chess.turn());
 
   const botEnabled = !outcome && turn !== playerColor && !chess.isGameOver();
-  const { move: workerMove, thinking: workerThinking } = useBotWorker(fen, level, botEnabled);
-
-  useEffect(() => {
-    botThinkingRef.current = workerThinking;
-  }, [workerThinking]);
+  const { move: workerMove, startedAt: searchStartedAt, thinking: workerThinking } =
+    useBotWorker(fen, level, botEnabled, gameId);
 
   useEffect(() => {
     if (!workerMove || !botEnabled) return;
@@ -667,10 +663,10 @@ function BotGame({
 
       const result = getGameResult(active);
       if (result) finishGame(result.result, result.reason, active.fen(), nextMoves);
-    }, user.settings.botDelayMs);
+    }, Math.max(0, user.settings.botDelayMs - (Date.now() - (searchStartedAt ?? Date.now()))));
 
     return () => window.clearTimeout(timer);
-  }, [workerMove, botEnabled, fen, moves, playerColor, user.settings.botDelayMs]);
+  }, [workerMove, botEnabled, fen, moves, playerColor, user.settings.botDelayMs, searchStartedAt]);
 
   function newGame() {
     const fresh = new Chess();
@@ -682,7 +678,6 @@ function BotGame({
     setOutcome(null);
     setLastCompletedGame(null);
     setSaveStatus("");
-    botThinkingRef.current = false;
     gameEndSoundPlayed.current = false;
     playSound("gameStart", user.settings);
   }
@@ -804,7 +799,8 @@ function BotGame({
         lastMove={lastMove}
         settings={user.settings}
         orientation={playerColor}
-        interactiveSide={outcome || botThinkingRef.current ? null : playerColor}
+        interactiveSide={outcome || turn !== playerColor ? null : playerColor}
+        clockSide={outcome ? null : turn}
         timeControl={timeControl}
         onTimeout={(flagged) => finishGame(flagged === "white" ? "black" : "white", "timeout", fen, moves)}
         onMove={makeMove}
@@ -813,8 +809,8 @@ function BotGame({
         status={
           outcome
             ? formatResult(outcome.result, outcome.reason)
-            : botThinkingRef.current
-            ? "Bot is thinking..."
+            : botEnabled
+            ? workerThinking ? "Bot is thinking..." : "Bot preparing move..."
             : `${title(turn)} to move`
         }
         actions={

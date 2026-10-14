@@ -36,6 +36,10 @@ export const ChessBoard = React.memo(function ChessBoard({
   onInvalidMove
 }: ChessBoardProps) {
   const chess = useMemo(() => new Chess(fen), [fen]);
+  // Compute expensive legal-game status once per position, not for every square.
+  const isGameOver = useMemo(() => chess.isGameOver(), [chess]);
+  const currentTurn = chess.turn();
+  const canMoveTurnNow = interactiveSide === "both" || interactiveSide === sideFromTurn(currentTurn);
   const [selected, setSelected] = useState<string | null>(null);
   const [promotion, setPromotion] = useState<{ from: string; to: string } | null>(null);
   const [dragFrom, setDragFrom] = useState<string | null>(null);
@@ -45,13 +49,12 @@ export const ChessBoard = React.memo(function ChessBoard({
 
   const ranks = orientation === "white" ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8];
   const boardFiles = orientation === "white" ? files : [...files].reverse();
-  const legalTargets = selected
-    ? new Set(
-        chess
-          .moves({ square: selected as Square, verbose: true })
-          .map((move) => move.to)
-      )
-    : new Set<string>();
+  const legalTargets = useMemo(
+    () => selected && !isGameOver
+      ? new Set(chess.moves({ square: selected as Square, verbose: true }).map((move) => move.to))
+      : new Set<string>(),
+    [chess, selected, isGameOver]
+  );
 
   // Find king square for check glow
   const kingSquare = useMemo(() => {
@@ -70,11 +73,6 @@ export const ChessBoard = React.memo(function ChessBoard({
     return null;
   }, [fen, isCheck]);
 
-  function canMoveTurn() {
-    const turn = sideFromTurn(chess.turn());
-    return interactiveSide === "both" || interactiveSide === turn;
-  }
-
   function triggerShake(square: string) {
     if (shakeTimer.current) {
       window.clearTimeout(shakeTimer.current);
@@ -89,7 +87,7 @@ export const ChessBoard = React.memo(function ChessBoard({
 
   const executeMove = useCallback(
     (from: string, to: string) => {
-      if (disabled || !onMove || chess.isGameOver()) return;
+      if (disabled || !onMove || isGameOver) return;
 
       const movingPiece = chess.get(from as Square);
       if (!movingPiece) return;
@@ -118,12 +116,12 @@ export const ChessBoard = React.memo(function ChessBoard({
   );
 
   function clickSquare(square: string) {
-    if (disabled || !onMove || chess.isGameOver()) {
+    if (disabled || !onMove || isGameOver) {
       return;
     }
     const piece = chess.get(square as Square);
     const turn = chess.turn();
-    const canMove = canMoveTurn();
+    const canMove = canMoveTurnNow;
 
     if (!selected) {
       if (piece && piece.color === turn && canMove) {
@@ -164,12 +162,12 @@ export const ChessBoard = React.memo(function ChessBoard({
 
   // --- Drag-and-drop handlers ---
   function handleDragStart(event: React.DragEvent, square: string) {
-    if (disabled || chess.isGameOver()) {
+    if (disabled || isGameOver) {
       event.preventDefault();
       return;
     }
     const piece = chess.get(square as Square);
-    const canMove = canMoveTurn();
+    const canMove = canMoveTurnNow;
     if (!piece || piece.color !== chess.turn() || !canMove) {
       event.preventDefault();
       return;
@@ -215,9 +213,9 @@ export const ChessBoard = React.memo(function ChessBoard({
   } | null>(null);
 
   function handleTouchStart(event: React.TouchEvent, square: string) {
-    if (disabled || chess.isGameOver()) return;
+    if (disabled || isGameOver) return;
     const piece = chess.get(square as Square);
-    const canMove = canMoveTurn();
+    const canMove = canMoveTurnNow;
     if (!piece || piece.color !== chess.turn() || !canMove) return;
 
     const touch = event.touches[0];
@@ -280,9 +278,9 @@ export const ChessBoard = React.memo(function ChessBoard({
             const canDrag = Boolean(
               piece &&
                 piece.color === chess.turn() &&
-                canMoveTurn() &&
+                canMoveTurnNow &&
                 !disabled &&
-                !chess.isGameOver()
+                !isGameOver
             );
             const isJarvisFrom = jarvisRecommendedMove && jarvisRecommendedMove.from === square;
             const isJarvisTo = jarvisRecommendedMove && jarvisRecommendedMove.to === square;
