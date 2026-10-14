@@ -1,6 +1,6 @@
 <!-- DVILR PROJECT COVER v1 -->
 <p align="center"><img src="./assets/dvilr-project-banner.svg" width="100%" alt="Chess Arena — Play. Learn. Compete." /></p>
-<p align="center"><a href="https://github.com/dvilrgamerz"><strong>Developer profile</strong></a> · <a href="https://github.com/dvilrgamerz/chess"><strong>Source</strong></a> · <a href="https://chess-arena-v2.netlify.app"><strong>Live app ↗</strong></a></p>
+<p align="center"><a href="https://github.com/dvilrgamerz"><strong>Developer profile</strong></a> · <a href="https://github.com/dvilrgamerz/chess"><strong>Source</strong></a> · <a href="https://chessv21.netlify.app"><strong>Live app ↗</strong></a></p>
 <!-- /DVILR PROJECT COVER -->
 
 # ♟️ Chess Arena v2
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://chess-arena-v2.netlify.app"><strong>🎮 Play Chess Arena Live</strong></a>
+  <a href="https://chessv21.netlify.app"><strong>🎮 Play Chess Arena Live</strong></a>
   ·
   <a href="https://github.com/dvilrgamerz/chess/issues">Report a Bug</a>
   ·
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="https://chess-arena-v2.netlify.app">
+  <a href="https://chessv21.netlify.app">
     <img alt="Live Site" src="https://img.shields.io/badge/PLAY-LIVE-success?style=for-the-badge&logo=netlify" />
   </a>
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-React-blue?style=for-the-badge&logo=typescript" />
@@ -26,7 +26,7 @@
   <img alt="Netlify" src="https://img.shields.io/badge/Deploy-Netlify-00C7B7?style=for-the-badge&logo=netlify&logoColor=white" />
 </p>
 
-> **Live app:** [https://chess-arena-v2.netlify.app](https://chess-arena-v2.netlify.app)
+> **Live app:** [https://chessv21.netlify.app](https://chessv21.netlify.app)
 
 ---
 
@@ -57,7 +57,7 @@ The v2 architecture removes the old production dependency on a persistent Expres
 
 ### 🌍 Live Production App
 
-**[▶ Open Chess Arena v2](https://chess-arena-v2.netlify.app)**
+**[▶ Open Chess Arena v2](https://chessv21.netlify.app)**
 
 Production branch: **`main`**
 
@@ -309,7 +309,7 @@ It also includes SPA routing, asset caching, HSTS, clickjacking protection, MIME
 
 **Branch:** `main`
 
-**Live URL:** [chess-arena-v2.netlify.app](https://chess-arena-v2.netlify.app)
+**Live URL:** [chessv21.netlify.app](https://chessv21.netlify.app)
 
 ---
 
@@ -372,7 +372,7 @@ Ideas, bug reports, testing feedback, and improvements are welcome.
 
 ## 🔗 Links
 
-- 🎮 **Live App:** [chess-arena-v2.netlify.app](https://chess-arena-v2.netlify.app)
+- 🎮 **Live App:** [chessv21.netlify.app](https://chessv21.netlify.app)
 - 💻 **Repository:** [github.com/dvilrgamerz/chess](https://github.com/dvilrgamerz/chess)
 - 🐛 **Issues:** [GitHub Issues](https://github.com/dvilrgamerz/chess/issues)
 - 🔐 **Security:** [SECURITY.md](SECURITY.md)
