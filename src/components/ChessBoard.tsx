@@ -57,14 +57,7 @@ export const ChessBoard = React.memo(function ChessBoard({
   const kingSquare = useMemo(() => {
     if (!isCheck) return null;
     const turn = chess.turn();
-    for (const row of chess.board()) {
-      for (const piece of row) {
-        if (piece && piece.type === "k" && piece.color === turn) {
-          return `${files[chess.board().indexOf(row) !== -1 ? 0 : 0]}`;
-        }
-      }
-    }
-    // Find king square by scanning all squares
+    // Find the threatened king on its real board square
     for (const rank of [1, 2, 3, 4, 5, 6, 7, 8]) {
       for (const file of files) {
         const sq = `${file}${rank}` as Square;
