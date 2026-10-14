@@ -2,6 +2,13 @@
   command = "npm run build"
   publish = "dist/client"
 
+# Browser-exposed settings only. The Supabase publishable key is intentionally
+# public; authorization remains enforced by RLS and protected Edge Functions.
+# Never put a service-role key or sb_secret_* credential in this file.
+[build.environment]
+  VITE_SUPABASE_URL = "https://hulquvtadftsezwjthni.supabase.co"
+  VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable__I2Zi5gFYb4pUwG3IdMhTg_pOgHXS1j"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
