@@ -234,7 +234,7 @@ export async function requestPasswordReset(email: string) {
   }
 
   // The redirect origin must be allowlisted in Supabase Auth URL Configuration.
-  const redirectTo = `${window.location.origin}/reset-password?recovery=1`;
+  const redirectTo = `${window.location.origin}/reset-password`;
   const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
     redirectTo
   });
