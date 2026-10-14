@@ -36,9 +36,12 @@ import {
   joinRandomMatchSupabase,
   leaveRandomQueueSupabase,
   onlineGameActionSupabase,
+  previewOnlineMove,
+  shouldApplyOnlineSnapshot,
   submitOnlineMoveSupabase,
   subscribeToMatchmaking,
   subscribeToOnlineGameRealtime,
+  syncOnlineGameSupabase,
   syncRandomMatchSupabase
 } from "./lib/supabaseOnline.js";
 import type {
@@ -968,6 +971,10 @@ function OnlineGame({
   );
   const [message, setMessage] = useState(isSupabaseConfigured ? "Supabase Realtime ready" : "Online service is not configured");
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
+  const [movePending, setMovePending] = useState(false);
+  const authoritativeSnapshotRef = useRef<GameSnapshot | null>(null);
+  const movePendingRef = useRef(false);
+  const activeGameIdRef = useRef<string | null>(null);
   const [playerColor, setPlayerColor] = useState<Side | null>(null);
   const [preferredColor, setPreferredColor] = useState<Side>("white");
   const [joinCode, setJoinCode] = useState("");
@@ -985,55 +992,74 @@ function OnlineGame({
     };
   }, []);
 
-  function applySnapshot(state: GameSnapshot) {
-    const prev = prevSnapshotRef.current;
+  // Predict the board immediately, but keep the server state separate.
+  // Supabase responses/realtime events can arrive out of order.
+  function applySnapshot(state: GameSnapshot, authoritative = true) {
+    if (authoritative) {
+      const confirmed = authoritativeSnapshotRef.current;
+      if (!shouldApplyOnlineSnapshot(confirmed, state)) return;
 
-    if (prev && state.moves.length > prev.moves.length && state.status === "active") {
-      const tempChess = new Chess();
-      for (const san of state.moves) {
-        try {
-          tempChess.move(san);
-        } catch {
-          break;
-        }
+      if (movePendingRef.current && confirmed?.id === state.id) {
+        // Ignore old realtime events from before the in-flight move; a real
+        // newer revision (including a rejection/conflict) ends the preview.
+        const notNewer = confirmed.stateVersion !== undefined && state.stateVersion !== undefined
+          ? state.stateVersion <= confirmed.stateVersion
+          : state.moves.length <= confirmed.moves.length;
+        if (notNewer) return;
       }
-      if (tempChess.inCheck()) {
-        playSound("check", user.settings);
-      } else {
-        const history = tempChess.history({ verbose: true });
-        const last = history[history.length - 1];
-        if (last?.captured) playSound("capture", user.settings);
-        else if (last?.flags.includes("k") || last?.flags.includes("q")) playSound("castle", user.settings);
-        else playSound("move", user.settings);
-      }
+      authoritativeSnapshotRef.current = state;
+      movePendingRef.current = false;
+      setMovePending(false);
     }
 
-    if (state.status === "complete" && prev?.status !== "complete" && !gameEndSoundPlayed.current) {
+    const prev = prevSnapshotRef.current;
+    if (prev?.id === state.id && state.moves.length > prev.moves.length && state.status === "active") {
+      // FEN and lastMove already contain everything needed; replaying the
+      // entire history on every update made long games increasingly expensive.
+      if (state.isCheck) playSound("check", user.settings);
+      else if (state.lastMove?.san.includes("x")) playSound("capture", user.settings);
+      else if (state.lastMove?.san.startsWith("O-O")) playSound("castle", user.settings);
+      else playSound("move", user.settings);
+    }
+
+    if (state.status === "complete" && (prev?.id !== state.id || prev.status !== "complete") &&
+        !gameEndSoundPlayed.current) {
       gameEndSoundPlayed.current = true;
       playSound("gameEnd", user.settings);
     }
 
     prevSnapshotRef.current = state;
     setSnapshot(state);
-    const color =
-      state.players.white?.id === user.id
-        ? "white"
-        : state.players.black?.id === user.id
-        ? "black"
-        : null;
+    const color = state.players.white?.id === user.id
+      ? "white"
+      : state.players.black?.id === user.id
+      ? "black"
+      : null;
     setPlayerColor(color);
   }
 
   function watchGame(gameId: string) {
+    activeGameIdRef.current = gameId;
     stopGameSubscriptionRef.current?.();
     stopGameSubscriptionRef.current = subscribeToOnlineGameRealtime(
       gameId,
-      applySnapshot,
+      (state) => {
+        if (activeGameIdRef.current === gameId) applySnapshot(state);
+      },
       (status) => {
+        if (activeGameIdRef.current !== gameId) return;
         if (status === "SUBSCRIBED") {
           setConnectionStatus("connected");
           setMessage("Live game synchronized");
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          // Fetch once when a subscription is established or restored.
+          // This closes the gap between joining a room and receiving events,
+          // and recovers moves missed during a network disconnection.
+          void syncOnlineGameSupabase(gameId)
+            .then(({ snapshot: fresh }) => {
+              if (activeGameIdRef.current === gameId) applySnapshot(fresh);
+            })
+            .catch(() => setMessage("Could not resync game; trying Realtime..."));
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           setConnectionStatus("reconnecting");
           setMessage("Realtime reconnecting...");
         }
@@ -1128,18 +1154,40 @@ function OnlineGame({
   }
 
   async function handleOnlineMove(move: { from: string; to: string; promotion?: string }) {
-    if (!snapshot || snapshot.status !== "active") return;
+    const confirmed = authoritativeSnapshotRef.current;
+    if (!confirmed || confirmed.status !== "active" || movePendingRef.current ||
+        confirmed.turn !== playerColor || activeGameIdRef.current !== confirmed.id) return;
+    const predicted = previewOnlineMove(confirmed, move.from, move.to, move.promotion ?? "q");
+    if (!predicted) return;
+
+    movePendingRef.current = true;
+    setMovePending(true);
+    applySnapshot(predicted, false);
     try {
       const updated = await submitOnlineMoveSupabase(
-        snapshot.id,
+        confirmed.id,
         move.from,
         move.to,
         move.promotion ?? "q"
       );
-      applySnapshot(updated);
+      if (activeGameIdRef.current === confirmed.id) applySnapshot(updated);
     } catch (error) {
+      if (activeGameIdRef.current !== confirmed.id) return;
+      movePendingRef.current = false;
+      setMovePending(false);
+      // Roll back to the latest known confirmed server state, then reconcile.
+      const latest = authoritativeSnapshotRef.current;
+      if (latest?.id === confirmed.id) {
+        prevSnapshotRef.current = latest;
+        setSnapshot(latest);
+      }
       playSound("invalid", user.settings);
-      setMessage(error instanceof Error ? error.message : "Move was rejected.");
+      setMessage(error instanceof Error ? error.message : "Move rejected by server.");
+      void syncOnlineGameSupabase(confirmed.id)
+        .then(({ snapshot: fresh }) => {
+          if (activeGameIdRef.current === confirmed.id) applySnapshot(fresh);
+        })
+        .catch(() => setMessage("Move failed and resync unavailable; check your connection."));
     }
   }
 
@@ -1274,7 +1322,8 @@ function OnlineGame({
           lastMove={snapshot.lastMove}
           settings={user.settings}
           orientation={playerColor ?? "white"}
-          interactiveSide={snapshot.status === "active" ? playerColor : null}
+          interactiveSide={snapshot.status === "active" && !movePending ? playerColor : null}
+          clockSide={snapshot.status === "active" ? snapshot.turn : null}
           timeControl={snapshot.timeControl}
           whiteTimeRemainingMs={snapshot.whiteTimeRemainingMs}
           blackTimeRemainingMs={snapshot.blackTimeRemainingMs}
@@ -1358,6 +1407,7 @@ function GameLayout({
   settings,
   orientation,
   interactiveSide,
+  clockSide,
   timeControl,
   whiteTimeRemainingMs,
   blackTimeRemainingMs,
@@ -1379,6 +1429,7 @@ function GameLayout({
   settings: UserSettings;
   orientation: Side;
   interactiveSide: Side | "both" | null;
+  clockSide?: Side | null;
   timeControl?: TimeControl;
   whiteTimeRemainingMs?: number;
   blackTimeRemainingMs?: number;
@@ -1398,7 +1449,7 @@ function GameLayout({
   const isCheck = chess.inCheck();
 
   const turn = sideFromTurn(chess.turn());
-  const activeClockSide = result ? null : interactiveSide === "both" ? turn : interactiveSide;
+  const activeClockSide = result ? null : clockSide !== undefined ? clockSide : interactiveSide === "both" ? turn : interactiveSide;
 
   // Calculate J.A.R.V.I.S. calculation & overlay for Owner
   const { result: jarvisAnalysis } = useJarvisWorker(fen, user.role === "owner" && !result);
