@@ -233,6 +233,7 @@ export async function requestPasswordReset(email: string) {
     throw new Error("Enter a valid email address.");
   }
 
+  // The redirect origin must be allowlisted in Supabase Auth URL Configuration.
   const redirectTo = `${window.location.origin}/reset-password?recovery=1`;
   const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
     redirectTo
@@ -247,7 +248,12 @@ export async function updateRecoveredPassword(password: string) {
     throw new Error("New password must be at least 8 characters.");
   }
 
-  await initializePasswordRecoverySession();
+  // The recovery token is exchanged when the recovery page opens.
+  // Exchanging a one-time code again when the form is submitted invalidates the flow.
+  const { data: recoverySession, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !recoverySession.session) {
+    throw new Error("Password-reset session expired or invalid. Request a new reset email.");
+  }
 
   const { error } = await supabase.auth.updateUser({ password });
   if (error) throw new Error(error.message);
