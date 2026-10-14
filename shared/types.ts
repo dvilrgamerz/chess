@@ -113,6 +113,7 @@ export interface LastMove {
 
 export interface GameSnapshot {
   id: string;
+  stateVersion?: number;
   mode: GameMode;
   roomCode?: string;
   timeControl?: TimeControl;

@@ -21,6 +21,7 @@ export function mapOnlineRowToSnapshot(row: any): GameSnapshot {
   const chess = new Chess(row.fen);
   return {
     id: row.id,
+    stateVersion: row.state_version == null ? undefined : Number(row.state_version),
     mode: row.mode ?? "friend",
     roomCode: row.room_code ?? undefined,
     timeControl: row.time_control ?? undefined,
@@ -61,6 +62,59 @@ export function mapOnlineRowToSnapshot(row: any): GameSnapshot {
     endedAt: row.ended_at ?? undefined,
     drawOfferFrom: row.draw_offer_from ?? undefined
   };
+}
+
+/**
+ * Supabase events and Edge Function responses may arrive out of order.
+ * Never roll a game back to an older authoritative state.
+ */
+export function shouldApplyOnlineSnapshot(current: GameSnapshot | null, incoming: GameSnapshot): boolean {
+  if (!current || current.id !== incoming.id) return true;
+  if (current.stateVersion !== undefined && incoming.stateVersion !== undefined) {
+    if (incoming.stateVersion < current.stateVersion) return false;
+  } else if (incoming.moves.length < current.moves.length) {
+    return false;
+  }
+  return (
+    incoming.stateVersion !== current.stateVersion ||
+    incoming.fen !== current.fen ||
+    incoming.status !== current.status ||
+    incoming.turnStartedAt !== current.turnStartedAt ||
+    incoming.drawOfferFrom !== current.drawOfferFrom ||
+    incoming.players.white?.id !== current.players.white?.id ||
+    incoming.players.black?.id !== current.players.black?.id
+  );
+}
+
+/**
+ * Client-only visual prediction. The Edge Function still decides validity,
+ * clocks, ratings, and outcome. Never submit or persist this prediction as fact.
+ */
+export function previewOnlineMove(
+  state: GameSnapshot,
+  from: string,
+  to: string,
+  promotion = "q"
+): GameSnapshot | null {
+  if (state.status !== "active") return null;
+  try {
+    const chess = new Chess(state.fen);
+    const move = chess.move({ from, to, promotion });
+    if (!move) return null;
+    return {
+      ...state,
+      fen: chess.fen(),
+      turn: chess.turn() === "w" ? "white" : "black",
+      moves: [...state.moves, move.san],
+      lastMove: { from: move.from, to: move.to, san: move.san },
+      isCheck: chess.inCheck(),
+      // Approximate display only; corrected by the authoritative response.
+      turnStartedAt: new Date().toISOString(),
+      drawOfferFrom: undefined
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function createFriendRoomSupabase(
@@ -205,7 +259,8 @@ export function subscribeToOnlineGameRealtime(
 
 export function subscribeToMatchmaking(
   userId: string,
-  onMatched: () => void
+  onMatched: () => void,
+  onStatus?: (status: string) => void
 ) {
   if (!isSupabaseConfigured) return () => {};
 
@@ -223,7 +278,7 @@ export function subscribeToMatchmaking(
         if (payload.new?.matched_game_id) onMatched();
       }
     )
-    .subscribe();
+    .subscribe((status) => onStatus?.(status));
 
   return () => {
     void supabase.removeChannel(channel);

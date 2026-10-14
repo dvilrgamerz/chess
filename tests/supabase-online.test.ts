@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mapOnlineRowToSnapshot } from "../src/lib/supabaseOnline.js";
+import { Chess } from "chess.js";
+import { mapOnlineRowToSnapshot, previewOnlineMove, shouldApplyOnlineSnapshot } from "../src/lib/supabaseOnline.js";
 
 describe("Supabase online game state", () => {
   it("maps authoritative database state into a playable snapshot", () => {
@@ -68,4 +69,52 @@ describe("Supabase online game state", () => {
     expect(snapshot.isCheck).toBe(true);
     expect(snapshot.turn).toBe("black");
   });
+  it("preserves the database state revision", () => {
+    const state = mapOnlineRowToSnapshot({
+      id: "game-1", state_version: 7, status: "active",
+      fen: new Chess().fen(), moves: []
+    });
+    expect(state.stateVersion).toBe(7);
+  });
+
+  it("predicts a legal move instantly without changing the authoritative source", () => {
+    const base = mapOnlineRowToSnapshot({
+      id: "game-1", state_version: 3, status: "active",
+      fen: new Chess().fen(), moves: [],
+      white_user_id: "player-1", black_user_id: "player-2"
+    });
+    const predicted = previewOnlineMove(base, "e2", "e4");
+    expect(predicted).not.toBeNull();
+    expect(predicted?.turn).toBe("black");
+    expect(predicted?.moves).toEqual(["e4"]);
+    expect(predicted?.lastMove?.san).toBe("e4");
+    expect(predicted?.stateVersion).toBe(3);
+    expect(base.moves).toEqual([]);
+    expect(base.fen).toBe(new Chess().fen());
+    expect(previewOnlineMove(base, "e2", "e5")).toBeNull();
+    expect(previewOnlineMove({ ...base, status: "complete" }, "e2", "e4")).toBeNull();
+  });
+
+  it("ignores stale realtime state, but accepts a newer server revision", () => {
+    const base = mapOnlineRowToSnapshot({
+      id: "game-1", state_version: 4, status: "active",
+      fen: new Chess().fen(), moves: []
+    });
+    const previous = { ...base, stateVersion: 3, fen: new Chess().fen() };
+    const next = { ...base, stateVersion: 5, status: "complete" as const };
+    expect(shouldApplyOnlineSnapshot(base, previous)).toBe(false);
+    expect(shouldApplyOnlineSnapshot(base, base)).toBe(false);
+    expect(shouldApplyOnlineSnapshot(base, next)).toBe(true);
+    expect(shouldApplyOnlineSnapshot(base, { ...base, id: "game-2" })).toBe(true);
+  });
+
+  it("does not roll back move history if a legacy payload lacks versions", () => {
+    const withMove = mapOnlineRowToSnapshot({
+      id: "game-1", status: "active",
+      fen: new Chess().fen(), moves: ["e4"]
+    });
+    const withoutMove = { ...withMove, moves: [], fen: "different-fen" };
+    expect(shouldApplyOnlineSnapshot(withMove, withoutMove)).toBe(false);
+  });
+
 });
