@@ -51,7 +51,7 @@ export const defaultSettings: UserSettings = {
 };
 
 const OWNER_ID = "owner-jenil-p-id";
-const OWNER_EMAIL = "jp3005791@gmail.com";
+// Keep the persisted legacy owner ID stable to avoid invalidating existing local accounts.
 
 const emptyData = (): PersistedData => {
   const now = new Date().toISOString();
@@ -78,22 +78,32 @@ export class JsonDatabase {
 
   /** Ensures exactly one server-controlled Owner identity exists. */
   private seedOwner() {
-    const ownerEmailKey = OWNER_EMAIL.toLowerCase();
+    const persistedOwner = this.data.users.find((u) => u.id === OWNER_ID);
+    const ownerEmail = (process.env.OWNER_EMAIL?.trim() || persistedOwner?.email || "").trim();
+    if (!ownerEmail) {
+      throw new Error("OWNER_EMAIL must be set before the legacy Owner account can be created.");
+    }
+    validateEmail(ownerEmail);
+    const ownerEmailKey = ownerEmail.toLowerCase();
     const configuredPassword = process.env.OWNER_INITIAL_PASSWORD;
-    let owner = this.data.users.find((u) => u.id === OWNER_ID || u.emailKey === ownerEmailKey);
+    const owner = persistedOwner;
+    if (!owner && this.data.users.some((u) => u.emailKey === ownerEmailKey)) {
+      throw new Error("OWNER_EMAIL is already registered to a different account.");
+    }
+    let existingOwner = owner;
 
-    if (!owner) {
+    if (!existingOwner) {
       if (!configuredPassword) {
         throw new Error("OWNER_INITIAL_PASSWORD must be configured before the Owner account can be created.");
       }
       const salt = crypto.randomBytes(16).toString("hex");
       const today = new Date().toISOString().split("T")[0];
-      owner = {
+      existingOwner = {
         id: OWNER_ID,
-        email: OWNER_EMAIL,
+        email: ownerEmail,
         emailKey: ownerEmailKey,
-        username: "Jenil P",
-        usernameKey: "jenil p",
+        username: "SiteOwner",
+        usernameKey: "siteowner",
         role: "owner",
         passwordHash: hashPassword(configuredPassword, salt),
         salt,
@@ -112,7 +122,7 @@ export class JsonDatabase {
         createdAt: new Date().toISOString(),
         settings: { ...defaultSettings, jarvisEnabled: true }
       };
-      this.data.users.unshift(owner);
+      this.data.users.unshift(existingOwner);
       this.persist();
       return;
     }
@@ -130,9 +140,9 @@ export class JsonDatabase {
         changed = true;
       }
     }
-    if (owner.emailKey !== ownerEmailKey) {
-      owner.email = OWNER_EMAIL;
-      owner.emailKey = ownerEmailKey;
+    if (existingOwner.emailKey !== ownerEmailKey) {
+      existingOwner.email = ownerEmail;
+      existingOwner.emailKey = ownerEmailKey;
       changed = true;
     }
     if (changed) this.persist();
