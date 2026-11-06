@@ -58,7 +58,7 @@ export function OwnerVerifyModal({ isOpen, onVerified, onCancel, actionTitle }: 
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password (e.g. Jenil000)"
+                placeholder="Enter your owner password"
                 required
                 autoFocus
               />
