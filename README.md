@@ -255,6 +255,8 @@ VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 
 > Only use a **publishable Supabase key** in frontend `VITE_*` variables. Never expose a Supabase secret/service-role key in browser code.
 
+The current hosted app is Supabase-based. If you run the **legacy local Node server**, set `OWNER_EMAIL` and `OWNER_INITIAL_PASSWORD` as **server-only environment variables** before initializing a new owner account. Do not put owner credentials in a `VITE_*` variable, public client bundle, README, or commit. Existing legacy owner records keep their persistent ID, and the server uses the stored owner email when `OWNER_EMAIL` is unset.
+
 ---
 
 ## 🗄️ Supabase Setup
