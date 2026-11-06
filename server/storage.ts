@@ -50,8 +50,8 @@ export const defaultSettings: UserSettings = {
   jarvisEnabled: true
 };
 
+// Stable identifier is retained to preserve existing legacy local owner records.
 const OWNER_ID = "owner-jenil-p-id";
-// Keep the persisted legacy owner ID stable to avoid invalidating existing local accounts.
 
 const emptyData = (): PersistedData => {
   const now = new Date().toISOString();
@@ -86,11 +86,10 @@ export class JsonDatabase {
     validateEmail(ownerEmail);
     const ownerEmailKey = ownerEmail.toLowerCase();
     const configuredPassword = process.env.OWNER_INITIAL_PASSWORD;
-    const owner = persistedOwner;
-    if (!owner && this.data.users.some((u) => u.emailKey === ownerEmailKey)) {
+    if (this.data.users.some((u) => u.id !== OWNER_ID && u.emailKey === ownerEmailKey)) {
       throw new Error("OWNER_EMAIL is already registered to a different account.");
     }
-    let existingOwner = owner;
+    let existingOwner = persistedOwner;
 
     if (!existingOwner) {
       if (!configuredPassword) {
